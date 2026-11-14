@@ -1,0 +1,266 @@
+
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#176b61">
+<title>TripNote - 旅のしおり</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#f4f6f5;color:#263431;font-family:system-ui,-apple-system,sans-serif}
+header{background:#176b61;color:white;padding:25px 20px 30px;border-radius:0 0 24px 24px}
+header h1{margin:0;font-size:27px}
+header p{margin:7px 0 0;color:#d7eeea;font-size:14px}
+main{max-width:650px;margin:auto;padding:20px 15px 50px}
+button{border:0;border-radius:12px;padding:12px 16px;font-size:14px;font-weight:650;cursor:pointer}
+.primary{background:#176b61;color:white}
+.secondary{background:#e4efec;color:#176b61}
+.danger{background:#fff0ed;color:#b34d3e}
+.card{background:white;border-radius:17px;padding:17px;margin:13px 0;box-shadow:0 2px 9px #183c3010}
+h2{font-size:18px;margin:5px 0 13px}
+h3{font-size:16px;margin:0 0 8px}
+.muted{color:#71807b;font-size:13px}
+input,textarea{width:100%;padding:12px;border:1px solid #d8e1dd;border-radius:10px;font-size:15px;background:white;color:#263431;margin:6px 0 13px}
+label{font-size:13px;font-weight:650}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.trip-title{font-size:18px;font-weight:750}
+.entry{border-left:3px solid #75aaa0;padding:5px 0 8px 13px;margin:13px 0}
+.entry strong{display:block}
+.hidden{display:none!important}
+.row{display:flex;justify-content:space-between;gap:10px;align-items:center}
+footer{text-align:center;color:#87938e;font-size:12px;padding:25px}
+</style>
+</head>
+<body>
+<header>
+  <h1>✈ TripNote</h1>
+  <p>旅の思い出も、予定も、ここに。</p>
+</header>
+<main>
+  <section id="home">
+    <div class="row">
+      <h2>マイ旅行ノート</h2>
+      <button class="primary" onclick="showNew()">＋ 新しい旅行</button>
+    </div>
+    <div id="tripList"></div>
+    <div class="card">
+      <h3>📥 ChatGPTから旅行を取り込む</h3>
+      <p class="muted">JSON形式の旅行データを読み込めます。</p>
+      <input type="file" id="importFile" accept=".json,application/json">
+      <button class="secondary" onclick="importTrip()">旅行データを読み込む</button>
+    </div>
+  </section>
+
+  <section id="newTrip" class="hidden">
+    <div class="card">
+      <h2>新しい旅行を作成</h2>
+      <label>旅行の名前</label>
+      <input id="newName" placeholder="例：2027年 年始旅行">
+      <label>行き先</label>
+      <input id="newPlace" placeholder="例：四国・九州">
+      <label>出発日</label>
+      <input id="newDate" type="date">
+      <label>帰着日</label>
+      <input id="newEnd" type="date">
+      <div class="actions">
+        <button class="primary" onclick="createTrip()">作成する</button>
+        <button class="secondary" onclick="goHome()">戻る</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="detail" class="hidden">
+    <button class="secondary" onclick="goHome()">← 一覧に戻る</button>
+    <div class="card">
+      <h2 id="detailName"></h2>
+      <p id="detailInfo" class="muted"></p>
+      <div class="actions">
+        <button class="secondary" onclick="showEntryForm()">＋ 日程を追加</button>
+        <button class="secondary" onclick="exportTrip()">旅行データを書き出す</button>
+        <button class="danger" onclick="deleteTrip()">旅行を削除</button>
+      </div>
+    </div>
+    <div id="entryForm" class="card hidden">
+      <h3>日程を追加</h3>
+      <label>日付</label>
+      <input id="entryDate" type="date">
+      <label>時刻</label>
+      <input id="entryTime" type="time">
+      <label>予定・場所</label>
+      <input id="entryTitle" placeholder="例：ホテルを出発">
+      <label>メモ</label>
+      <textarea id="entryMemo" rows="3" placeholder="移動方法や料金など"></textarea>
+      <div class="actions">
+        <button class="primary" onclick="saveEntry()">保存する</button>
+        <button class="secondary" onclick="hideEntryForm()">閉じる</button>
+      </div>
+    </div>
+    <h2>旅のスケジュール</h2>
+    <div id="entries"></div>
+  </section>
+</main>
+<footer>TripNote · あなたの旅のしおり</footer>
+
+<script>
+let trips = JSON.parse(localStorage.getItem("tripnote_trips") || "[]");
+let currentId = null;
+
+function saveAll(){
+  localStorage.setItem("tripnote_trips",JSON.stringify(trips));
+}
+function show(id){
+  ["home","newTrip","detail"].forEach(x=>document.getElementById(x).classList.add("hidden"));
+  document.getElementById(id).classList.remove("hidden");
+}
+function goHome(){
+  show("home");
+  renderTrips();
+}
+function showNew(){
+  document.getElementById("newName").value="";
+  document.getElementById("newPlace").value="";
+  document.getElementById("newDate").value="";
+  document.getElementById("newEnd").value="";
+  show("newTrip");
+}
+function createTrip(){
+  const name=document.getElementById("newName").value.trim();
+  if(!name){alert("旅行の名前を入力してください");return;}
+  const trip={
+    id:Date.now(),
+    name,
+    place:document.getElementById("newPlace").value.trim(),
+    date:document.getElementById("newDate").value,
+    end:document.getElementById("newEnd").value,
+    entries:[]
+  };
+  trips.push(trip);
+  saveAll();
+  openTrip(trip.id);
+}
+function renderTrips(){
+  const box=document.getElementById("tripList");
+  if(!trips.length){
+    box.innerHTML='<div class="card"><p>まだ旅行がありません。</p><p class="muted">「新しい旅行」から最初の旅を作りましょう。</p></div>';
+    return;
+  }
+  box.innerHTML=trips.map(t=>`
+    <div class="card" onclick="openTrip(${t.id})">
+      <div class="trip-title">${escapeHtml(t.name)}</div>
+      <p class="muted">${escapeHtml(t.place||"行き先未設定")} · ${escapeHtml(t.date||"日付未設定")}</p>
+      <span class="muted">${t.entries.length} 件の予定</span>
+    </div>`).join("");
+}
+function openTrip(id){
+  currentId=id;
+  const t=trips.find(x=>x.id===id);
+  if(!t)return;
+  document.getElementById("detailName").textContent=t.name;
+  document.getElementById("detailInfo").textContent=
+    [t.place,t.date,t.end].filter(Boolean).join("　〜　");
+  document.getElementById("entryForm").classList.add("hidden");
+  renderEntries();
+  show("detail");
+}
+function renderEntries(){
+  const t=trips.find(x=>x.id===currentId);
+  if(!t)return;
+  const list=document.getElementById("entries");
+  const sorted=[...t.entries].sort((a,b)=>
+    (a.date+a.time).localeCompare(b.date+b.time));
+  if(!sorted.length){
+    list.innerHTML='<div class="card muted">まだ日程がありません。「日程を追加」から登録できます。</div>';
+    return;
+  }
+  list.innerHTML=sorted.map(e=>`
+    <div class="card">
+      <div class="entry">
+        <strong>${escapeHtml(e.date||"日付未設定")}　${escapeHtml(e.time||"")}</strong>
+        ${escapeHtml(e.title)}
+        <p class="muted">${escapeHtml(e.memo||"")}</p>
+      </div>
+      <button class="danger" onclick="removeEntry(${e.id})">この予定を削除</button>
+    </div>`).join("");
+}
+function showEntryForm(){
+  document.getElementById("entryDate").value="";
+  document.getElementById("entryTime").value="";
+  document.getElementById("entryTitle").value="";
+  document.getElementById("entryMemo").value="";
+  document.getElementById("entryForm").classList.remove("hidden");
+}
+function hideEntryForm(){
+  document.getElementById("entryForm").classList.add("hidden");
+}
+function saveEntry(){
+  const title=document.getElementById("entryTitle").value.trim();
+  if(!title){alert("予定・場所を入力してください");return;}
+  const t=trips.find(x=>x.id===currentId);
+  t.entries.push({
+    id:Date.now(),
+    date:document.getElementById("entryDate").value,
+    time:document.getElementById("entryTime").value,
+    title,
+    memo:document.getElementById("entryMemo").value.trim()
+  });
+  saveAll();
+  hideEntryForm();
+  renderEntries();
+  document.getElementById("detailInfo").textContent=
+    [t.place,t.date,t.end].filter(Boolean).join("　〜　");
+}
+function removeEntry(id){
+  if(!confirm("この予定を削除しますか？"))return;
+  const t=trips.find(x=>x.id===currentId);
+  t.entries=t.entries.filter(e=>e.id!==id);
+  saveAll();
+  renderEntries();
+}
+function deleteTrip(){
+  if(!confirm("この旅行を削除しますか？"))return;
+  trips=trips.filter(x=>x.id!==currentId);
+  saveAll();
+  goHome();
+}
+function exportTrip(){
+  const t=trips.find(x=>x.id===currentId);
+  const blob=new Blob([JSON.stringify(t,null,2)],{type:"application/json"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");
+  a.href=url;
+  a.download="tripnote-"+t.id+".json";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+function importTrip(){
+  const file=document.getElementById("importFile").files[0];
+  if(!file){alert("JSONファイルを選択してください");return;}
+  const reader=new FileReader();
+  reader.onload=()=>{
+    try{
+      const data=JSON.parse(reader.result);
+      const items=Array.isArray(data)?data:[data];
+      items.forEach(t=>{
+        if(!t.name)throw new Error("旅行名がありません");
+        t.id=Date.now()+Math.floor(Math.random()*100000);
+        if(!Array.isArray(t.entries))t.entries=[];
+        trips.push(t);
+      });
+      saveAll();
+      alert("旅行データを取り込みました！");
+      document.getElementById("importFile").value="";
+      renderTrips();
+    }catch(e){alert("読み込めませんでした。JSONデータを確認してください。");}
+  };
+  reader.readAsText(file);
+}
+function escapeHtml(value){
+  return String(value??"").replace(/[&<>"']/g,c=>({
+    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+  }[c]));
+}
+renderTrips();
+</script>
+</body>
+</html>
