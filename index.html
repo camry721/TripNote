@@ -41,8 +41,15 @@ footer{text-align:center;color:#87938e;font-size:12px;padding:25px}
 .pill.important{background:#ffe3e0;color:#b93832}
 .pill.target{background:#fff0cf;color:#98600b}
 .form-note{font-size:12px;color:#71807b;margin:-7px 0 12px}
-.checkline{display:flex;gap:8px;align-items:center;margin:4px 0 12px}
-.checkline input{width:auto;margin:0}
+.checkline{display:inline-flex;gap:7px;align-items:center;margin:4px 8px 12px 0;padding:9px 12px;border:1px solid #d8e1dd;border-radius:10px;cursor:pointer;font-size:14px;min-height:42px;user-select:none}
+.checkline input{accent-color:#176b61}
+.checkline input{width:auto;margin:0;cursor:pointer}
+.form-slot{margin:10px 0}
+.day-nav{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:10px 0}
+.day-nav button{padding:10px 13px}
+.day-nav-label{font-weight:750;text-align:center;flex:1}
+.day-card{touch-action:pan-y}
+
 .subcard{background:#f7faf8;border-radius:12px;padding:12px;margin-top:12px}
 hr{border:0;border-top:1px solid #e6ece9;margin:14px 0}
 </style>
@@ -115,11 +122,13 @@ hr{border:0;border-top:1px solid #e6ece9;margin:14px 0}
 
     <div id="scheduleForm" class="card hidden">
       <h3 id="scheduleFormTitle">時程を追加</h3>
-      <label>予定時刻（任意）</label><input id="scheduleTime" type="time">
-      <div class="form-note">時間が決まっていない予定は空欄で登録できます。</div>
-      <label>時間の種類</label>
-      <div class="checkline"><input type="checkbox" id="scheduleImportant" onchange="syncTimeChecks('important')"><span>🔴 重要時間（変更できない時間）</span></div>
-      <div class="checkline"><input type="checkbox" id="scheduleTarget" onchange="syncTimeChecks('target')"><span>🟠 目安時間（過ぎたら後の予定を見直す時間）</span></div>
+      <label>開始時刻（任意）</label><input id="scheduleTime" type="time">
+      <label>終了時刻（任意）</label><input id="scheduleEndTime" type="time">
+      <div class="form-note">開始時刻だけでも、時刻なしでも登録できます。終了時刻を入れると時間帯で表示します。</div>
+      <label>時間の種類</label><div>
+      <label class="checkline"><input type="checkbox" id="scheduleImportant"><span>🔴 重要</span></label>
+      <label class="checkline"><input type="checkbox" id="scheduleTarget"><span>🟠 目安</span></label>
+      </div>
       <label>予定・場所</label><input id="scheduleTitle" placeholder="例：フェリー出航">
       <label>メモ</label><textarea id="scheduleMemo" rows="3" placeholder="移動方法や料金など"></textarea>
       <div class="actions">
@@ -129,6 +138,8 @@ hr{border:0;border-top:1px solid #e6ece9;margin:14px 0}
     </div>
 
     <h2>旅行の日程</h2>
+    <div id="dayFormHomeSlot" class="form-slot"></div>
+    <div id="scheduleFormHomeSlot" class="form-slot"></div>
     <div id="days"></div>
   </section>
 </main>
@@ -138,6 +149,7 @@ hr{border:0;border-top:1px solid #e6ece9;margin:14px 0}
 let trips = JSON.parse(localStorage.getItem("tripnote_trips") || "[]");
 let currentId = null;
 let editingTrip = false, editingDayId = null, editingScheduleId = null, activeDayId = null;
+let activeDayIndex = 0, dayListMode = false, swipeStartX = null;
 
 function saveAll(){localStorage.setItem("tripnote_trips",JSON.stringify(trips));}
 function show(id){["home","newTrip","detail"].forEach(x=>document.getElementById(x).classList.add("hidden"));document.getElementById(id).classList.remove("hidden");}
@@ -177,7 +189,7 @@ function migrateTrip(t){
   (t.entries||[]).forEach(e=>{
     const d=e.date||t.date||"";
     if(!grouped[d])grouped[d]={id:"day-"+d+"-"+Math.random().toString(36).slice(2,7),date:d,theme:"",highlights:"",departure:"",departureTime:"",arrival:"",arrivalTime:"",accommodation:"",accommodationMemo:"",schedules:[]};
-    grouped[d].schedules.push({id:e.id||Date.now()+Math.random(),time:e.time||"",title:e.title||"",memo:e.memo||"",timeType:"normal"});
+    grouped[d].schedules.push({id:e.id||Date.now()+Math.random(),time:e.time||"",endTime:e.endTime||"",title:e.title||"",memo:e.memo||"",timeType:e.timeType||"normal"});
   });
   t.days=Object.values(grouped);
   t.days.sort((a,b)=>(a.date||"").localeCompare(b.date||""));
@@ -188,7 +200,7 @@ function openTrip(id){
   migrateTrip(t);saveAll();
   document.getElementById("detailName").textContent=t.name;
   document.getElementById("detailInfo").textContent=[t.place,t.date,t.end].filter(Boolean).join("　〜　");
-  hideDayForm();hideScheduleForm();renderDays();show("detail");
+  activeDayIndex=0;dayListMode=false;hideDayForm();hideScheduleForm();renderDays();show("detail");
 }
 function showDayForm(id=null){
   editingDayId=id;const t=getTrip();const d=id?(t.days||[]).find(x=>String(x.id)===String(id)):null;
@@ -202,65 +214,89 @@ function showDayForm(id=null){
   document.getElementById("dayArrivalTime").value=d?.arrivalTime||"";
   document.getElementById("dayAccommodation").value=d?.accommodation||"";
   document.getElementById("dayAccommodationMemo").value=d?.accommodationMemo||"";
-  document.getElementById("dayForm").classList.remove("hidden");
-  document.getElementById("scheduleForm").classList.add("hidden");
+  const form=document.getElementById("dayForm");
+  const slot=id?document.getElementById("day-form-slot-"+id):document.getElementById("dayFormHomeSlot");
+  if(slot)slot.appendChild(form);
+  form.classList.remove("hidden");
+  hideScheduleForm();
+  form.scrollIntoView({behavior:"smooth",block:"center"});
 }
-function hideDayForm(){document.getElementById("dayForm").classList.add("hidden");editingDayId=null;}
+function hideDayForm(){const y=window.scrollY;const f=document.getElementById("dayForm");f.classList.add("hidden");document.getElementById("dayFormHomeSlot").appendChild(f);editingDayId=null;requestAnimationFrame(()=>window.scrollTo(0,y));}
 function saveDay(){
   const t=getTrip(),date=document.getElementById("dayDate").value;
   if(!date){alert("日付を入力してください");return;}
   const d={id:editingDayId||("day-"+Date.now()),date,theme:document.getElementById("dayTheme").value.trim(),highlights:document.getElementById("dayHighlights").value.trim(),departure:document.getElementById("dayDeparture").value.trim(),departureTime:document.getElementById("dayDepartureTime").value,arrival:document.getElementById("dayArrival").value.trim(),arrivalTime:document.getElementById("dayArrivalTime").value,accommodation:document.getElementById("dayAccommodation").value.trim(),accommodationMemo:document.getElementById("dayAccommodationMemo").value.trim(),schedules:[]};
   if(editingDayId){const old=t.days.find(x=>String(x.id)===String(editingDayId));d.schedules=old?.schedules||[];t.days=t.days.map(x=>String(x.id)===String(editingDayId)?d:x);}
   else t.days.push(d);
-  saveAll();hideDayForm();renderDays();
+  const previousScrollY=window.scrollY;saveAll();hideDayForm();renderDays();const idx=[...t.days].sort((a,b)=>(a.date||"").localeCompare(b.date||"")).findIndex(x=>String(x.id)===String(d.id));if(idx>=0)activeDayIndex=idx;dayListMode=false;renderDays();requestAnimationFrame(()=>window.scrollTo(0,previousScrollY));
 }
 function showScheduleForm(dayId,id=null){
   const t=getTrip(),d=t.days.find(x=>String(x.id)===String(dayId)),s=id?d.schedules.find(x=>String(x.id)===String(id)):null;
   activeDayId=dayId;editingScheduleId=id;
   document.getElementById("scheduleFormTitle").textContent=s?"時程を編集":"時程を追加";
   document.getElementById("scheduleTime").value=s?.time||"";
+  document.getElementById("scheduleEndTime").value=s?.endTime||"";
   document.getElementById("scheduleTitle").value=s?.title||"";
   document.getElementById("scheduleMemo").value=s?.memo||"";
-  document.getElementById("scheduleImportant").checked=s?.timeType==="important";
-  document.getElementById("scheduleTarget").checked=s?.timeType==="target";
-  document.getElementById("scheduleForm").classList.remove("hidden");
-  document.getElementById("dayForm").classList.add("hidden");
-  document.getElementById("scheduleForm").scrollIntoView({behavior:"smooth",block:"start"});
+  document.getElementById("scheduleImportant").checked=s?.timeType==="important" || s?.timeType==="both";
+  document.getElementById("scheduleTarget").checked=s?.timeType==="target" || s?.timeType==="both";
+  const form=document.getElementById("scheduleForm");
+  const slot=id?document.getElementById("schedule-form-slot-"+id):document.getElementById("schedule-day-slot-"+dayId);
+  if(slot)slot.appendChild(form);
+  form.classList.remove("hidden");
+  hideDayForm();
+  form.scrollIntoView({behavior:"smooth",block:"center"});
 }
-function syncTimeChecks(which){if(which==="important"&&document.getElementById("scheduleImportant").checked)document.getElementById("scheduleTarget").checked=false;if(which==="target"&&document.getElementById("scheduleTarget").checked)document.getElementById("scheduleImportant").checked=false;}
-function hideScheduleForm(){document.getElementById("scheduleForm").classList.add("hidden");editingScheduleId=null;activeDayId=null;}
+function hideScheduleForm(){const y=window.scrollY;const f=document.getElementById("scheduleForm");f.classList.add("hidden");document.getElementById("scheduleFormHomeSlot").appendChild(f);editingScheduleId=null;activeDayId=null;requestAnimationFrame(()=>window.scrollTo(0,y));}
 function saveSchedule(){
   const title=document.getElementById("scheduleTitle").value.trim();if(!title){alert("予定・場所を入力してください");return;}
   const t=getTrip(),d=t.days.find(x=>String(x.id)===String(activeDayId));
-  const timeType=document.getElementById("scheduleImportant").checked?"important":document.getElementById("scheduleTarget").checked?"target":"normal";
-  const s={id:editingScheduleId||("schedule-"+Date.now()),time:document.getElementById("scheduleTime").value,title,memo:document.getElementById("scheduleMemo").value.trim(),timeType};
+  const time=document.getElementById("scheduleTime").value;
+  const endTime=document.getElementById("scheduleEndTime").value;
+  if(endTime&&!time){alert("終了時刻を設定する場合は、開始時刻も入力してください");return;}
+  const important=document.getElementById("scheduleImportant").checked;
+  const target=document.getElementById("scheduleTarget").checked;
+  const timeType=important&&target?"both":important?"important":target?"target":"normal";
+  const s={id:editingScheduleId||("schedule-"+Date.now()),time,endTime,title,memo:document.getElementById("scheduleMemo").value.trim(),timeType};
   if(editingScheduleId)d.schedules=d.schedules.map(x=>String(x.id)===String(editingScheduleId)?s:x);else d.schedules.push(s);
-  saveAll();hideScheduleForm();renderDays();
+  const savedDayId=activeDayId,scrollY=window.scrollY;saveAll();hideScheduleForm();renderDays();requestAnimationFrame(()=>window.scrollTo(0,scrollY));
 }
 function renderDays(){
   const t=getTrip(),box=document.getElementById("days");if(!t)return;
   const days=[...(t.days||[])].sort((a,b)=>(a.date||"").localeCompare(b.date||""));
   if(!days.length){box.innerHTML='<div class="card muted">まだ日程がありません。「日程を追加」から登録できます。</div>';return;}
-  box.innerHTML=days.map((d,i)=>{
+  if(activeDayIndex>=days.length)activeDayIndex=days.length-1;
+  const shown=dayListMode?days:[days[activeDayIndex]];
+  const nav=dayListMode?'':`<div class="day-nav"><button class="secondary" onclick="changeDay(-1)" ${activeDayIndex===0?'disabled':''}>‹ 前の日</button><div class="day-nav-label">${activeDayIndex+1} / ${days.length}日目</div><button class="secondary" onclick="changeDay(1)" ${activeDayIndex===days.length-1?'disabled':''}>次の日 ›</button></div>`;
+  const listButton=`<div class="actions"><button class="secondary" onclick="toggleDayList()">${dayListMode?'1日表示に戻る':'日程一覧を見る'}</button></div>`;
+  box.innerHTML=nav+shown.map(d=>{
+    const i=days.findIndex(x=>String(x.id)===String(d.id));
     const schedules=[...(d.schedules||[])].sort((a,b)=>(a.time||"99:99").localeCompare(b.time||"99:99"));
-    return `<div class="card day-card">
+    return `<div class="card day-card" id="day-card-${escapeHtml(d.id)}">
       <div class="day-head"><div><div class="day-date">${dateLabel(d.date)} <span class="muted">${i+1}日目</span></div><h3>${escapeHtml(d.theme||"テーマ未設定")}</h3></div></div>
+      <div id="day-form-slot-${escapeHtml(d.id)}" class="form-slot"></div>
       ${d.highlights?`<p class="detail-line">${escapeHtml(d.highlights)}</p>`:""}
-      ${(d.departure||d.arrival)?`<div class="subcard">
-        ${d.departure?`<div class="detail-line">🚗 出発：${escapeHtml(d.departure)} ${escapeHtml(d.departureTime||"")}</div>`:""}
-        ${d.arrival?`<div class="detail-line">🏁 到着：${escapeHtml(d.arrival)} ${escapeHtml(d.arrivalTime||"")}</div>`:""}
-      </div>`:""}
+      ${(d.departure||d.arrival)?`<div class="subcard">${d.departure?`<div class="detail-line">🚗 出発：${escapeHtml(d.departure)} ${escapeHtml(d.departureTime||"")}</div>`:""}${d.arrival?`<div class="detail-line">🏁 到着：${escapeHtml(d.arrival)} ${escapeHtml(d.arrivalTime||"")}</div>`:""}</div>`:""}
       ${d.accommodation?`<div class="subcard"><strong>🏨 宿泊先：${escapeHtml(d.accommodation)}</strong>${d.accommodationMemo?`<p class="muted">${escapeHtml(d.accommodationMemo)}</p>`:""}</div>`:""}
       <div class="actions"><button class="secondary" onclick="showDayForm('${String(d.id)}')">日程を編集</button><button class="danger" onclick="removeDay('${String(d.id)}')">日程を削除</button></div>
       <hr><div class="row"><strong>時程</strong><button class="primary" onclick="showScheduleForm('${String(d.id)}')">＋ 時程を追加</button></div>
-      ${schedules.length?schedules.map(s=>`<div class="schedule ${s.timeType==="important"?"important":s.timeType==="target"?"target":""}">
-        <div class="schedule-time">${escapeHtml(s.time||"時刻未設定")}${s.timeType==="important"?'<span class="pill important">重要時間</span>':s.timeType==="target"?'<span class="pill target">目安時間</span>':""}</div>
+      <div id="schedule-day-slot-${escapeHtml(d.id)}" class="form-slot"></div>
+      ${schedules.length?schedules.map(s=>`<div class="schedule ${s.timeType==="important"||s.timeType==="both"?"important":s.timeType==="target"?"target":""}" id="schedule-item-${escapeHtml(s.id)}">
+        <div class="schedule-time">${escapeHtml(s.time?(s.endTime?s.time+"〜"+s.endTime:s.time):"時刻未設定")}${s.timeType==="important"||s.timeType==="both"?'<span class="pill important">重要</span>':s.timeType==="target"?'<span class="pill target">目安</span>':""}</div>
         <strong>${escapeHtml(s.title)}</strong>${s.memo?`<p class="muted">${escapeHtml(s.memo)}</p>`:""}
         <div class="actions"><button class="secondary" onclick="showScheduleForm('${String(d.id)}','${String(s.id)}')">編集</button><button class="danger" onclick="removeSchedule('${String(d.id)}','${String(s.id)}')">削除</button></div>
+        <div id="schedule-form-slot-${escapeHtml(s.id)}" class="form-slot"></div>
       </div>`).join(""):'<p class="muted">時程はまだありません。</p>'}
+      ${dayListMode?`<div class="actions"><button class="primary" onclick="viewDay(${i})">この日を見る</button></div>`:""}
     </div>`;
-  }).join("");
+  }).join("")+listButton;
+  box.ontouchstart=e=>{swipeStartX=e.changedTouches[0].screenX;};
+  box.ontouchend=e=>{if(swipeStartX===null||dayListMode)return;const dx=e.changedTouches[0].screenX-swipeStartX;swipeStartX=null;if(Math.abs(dx)>55)changeDay(dx<0?1:-1);};
 }
+function changeDay(delta){const t=getTrip(),days=[...(t?.days||[])].sort((a,b)=>(a.date||"").localeCompare(b.date||""));activeDayIndex=Math.max(0,Math.min(days.length-1,activeDayIndex+delta));renderDays();}
+function toggleDayList(){dayListMode=!dayListMode;renderDays();}
+function viewDay(index){activeDayIndex=index;dayListMode=false;renderDays();window.scrollTo({top:document.getElementById("days").offsetTop-15,behavior:"smooth"});}
+
 function removeDay(id){if(!confirm("この日程と、その中の時程を削除しますか？"))return;const t=getTrip();t.days=t.days.filter(x=>String(x.id)!==String(id));saveAll();renderDays();}
 function removeSchedule(dayId,id){if(!confirm("この時程を削除しますか？"))return;const t=getTrip(),d=t.days.find(x=>String(x.id)===String(dayId));d.schedules=d.schedules.filter(x=>String(x.id)!==String(id));saveAll();renderDays();}
 function deleteTrip(){if(!confirm("この旅行を削除しますか？"))return;trips=trips.filter(x=>String(x.id)!==String(currentId));saveAll();goHome();}
