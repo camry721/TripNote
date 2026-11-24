@@ -149,7 +149,7 @@ hr{border:0;border-top:1px solid #e6ece9;margin:14px 0}
 let trips = JSON.parse(localStorage.getItem("tripnote_trips") || "[]");
 let currentId = null;
 let editingTrip = false, editingDayId = null, editingScheduleId = null, activeDayId = null;
-let activeDayIndex = 0, dayListMode = false, swipeStartX = null;
+let activeDayIndex = 0, dayListMode = false, swipeStartX = null , swipeStartY = null;
 
 function saveAll(){localStorage.setItem("tripnote_trips",JSON.stringify(trips));}
 function show(id){["home","newTrip","detail"].forEach(x=>document.getElementById(x).classList.add("hidden"));document.getElementById(id).classList.remove("hidden");}
@@ -290,8 +290,26 @@ function renderDays(){
       ${dayListMode?`<div class="actions"><button class="primary" onclick="viewDay(${i})">この日を見る</button></div>`:""}
     </div>`;
   }).join("")+listButton;
-  box.ontouchstart=e=>{swipeStartX=e.changedTouches[0].screenX;};
-  box.ontouchend=e=>{if(swipeStartX===null||dayListMode)return;const dx=e.changedTouches[0].screenX-swipeStartX;swipeStartX=null;if(Math.abs(dx)>55)changeDay(dx<0?1:-1);};
+  box.ontouchstart=e=>{
+    const dayFormOpen=!document.getElementById("dayForm").classList.contains("hidden");
+    const scheduleFormOpen=!document.getElementById("scheduleForm").classList.contains("hidden");
+    if(dayListMode||dayFormOpen||scheduleFormOpen){swipeStartX=null;swipeStartY=null;return;}
+    const touch=e.changedTouches[0];
+    swipeStartX=touch.screenX;
+    swipeStartY=touch.screenY;
+  };
+  box.ontouchend=e=>{
+    if(swipeStartX===null||swipeStartY===null||dayListMode){swipeStartX=null;swipeStartY=null;return;}
+    const touch=e.changedTouches[0];
+    const dx=touch.screenX-swipeStartX;
+    const dy=touch.screenY-swipeStartY;
+    swipeStartX=null;swipeStartY=null;
+    const dayFormOpen=!document.getElementById("dayForm").classList.contains("hidden");
+    const scheduleFormOpen=!document.getElementById("scheduleForm").classList.contains("hidden");
+    if(dayFormOpen||scheduleFormOpen)return;
+    if(Math.abs(dx)>60&&Math.abs(dx)>Math.abs(dy)*1.3)changeDay(dx<0?1:-1);
+  };
+  box.ontouchcancel=()=>{swipeStartX=null;swipeStartY=null;};
 }
 function changeDay(delta){const t=getTrip(),days=[...(t?.days||[])].sort((a,b)=>(a.date||"").localeCompare(b.date||""));activeDayIndex=Math.max(0,Math.min(days.length-1,activeDayIndex+delta));renderDays();}
 function toggleDayList(){dayListMode=!dayListMode;renderDays();}
